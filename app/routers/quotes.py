@@ -14,9 +14,42 @@ from app.services.quotation_service import (
     QuoteInProgressError,
     UserResolutionError,
     generate_quotation_for_user,
+    get_all_quotes_for_user,
 )
 
 router = APIRouter(prefix="/api/quotes", tags=["quotes"])
+
+
+@router.get("", status_code=status.HTTP_200_OK)
+async def get_all_quotes(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+):
+    signed_in = is_user_signed_in(authorization, request)
+    if not signed_in:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthenticated request",
+        )
+
+    clerk_user_id = get_authenticated_clerk_user_id(authorization, request)
+    if not clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unable to resolve authenticated user",
+        )
+
+    try:
+        quotes = get_all_quotes_for_user(clerk_user_id=clerk_user_id)
+    except UserResolutionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch quotes",
+        ) from exc
+
+    return {"quotes": quotes}
 
 
 class GenerateQuotationPayload(BaseModel):

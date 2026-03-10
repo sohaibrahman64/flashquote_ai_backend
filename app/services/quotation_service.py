@@ -111,6 +111,28 @@ LIMIT 1;
 """
 
 
+_SELECT_ALL_QUOTES_FOR_USER_SQL = """
+SELECT
+    q.id,
+    q.quote_request_id,
+    q.title,
+    q.currency,
+    q.subtotal,
+    q.tax,
+    q.discount,
+    q.total,
+    q.assumptions_json,
+    q.quote_json,
+    q.created_at,
+    qr.status AS request_status,
+    qr.prompt
+FROM quotes q
+JOIN quote_requests qr ON qr.id = q.quote_request_id
+WHERE q.user_id = %(user_id)s
+ORDER BY q.created_at DESC;
+"""
+
+
 _SELECT_REQUEST_BY_IDEMPOTENCY_SQL = """
 SELECT id, status
 FROM quote_requests
@@ -679,3 +701,42 @@ def generate_quotation_for_user(
             "quota_remaining": max(quota_limit - used_after_reservation, 0),
         },
     }
+
+
+def get_all_quotes_for_user(clerk_user_id: str) -> list[dict[str, Any]]:
+    load_dotenv()
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(_SELECT_USER_SQL, {"clerk_user_id": clerk_user_id})
+            row = cur.fetchone()
+            if not row:
+                raise UserResolutionError(
+                    f"No provisioned user found for clerk_user_id={clerk_user_id}"
+                )
+            user_id = int(row[0])
+
+            cur.execute(_SELECT_ALL_QUOTES_FOR_USER_SQL, {"user_id": user_id})
+            rows = cur.fetchall()
+
+    return [
+        {
+            "quote_id": int(r[0]),
+            "quote_request_id": int(r[1]),
+            "title": r[2],
+            "currency": r[3],
+            "subtotal": float(r[4]) if r[4] is not None else None,
+            "tax": float(r[5]) if r[5] is not None else None,
+            "discount": float(r[6]) if r[6] is not None else None,
+            "total": float(r[7]) if r[7] is not None else None,
+            "assumptions": r[8],
+            "quote": r[9],
+            "created_at": r[10].isoformat() if r[10] else None,
+            "request_status": r[11],
+            "prompt": r[12],
+        }
+        for r in rows
+    ]
