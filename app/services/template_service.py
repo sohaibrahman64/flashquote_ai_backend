@@ -35,6 +35,13 @@ ORDER BY id;
 """
 
 
+_INSERT_TEMPLATE_SQL = """
+INSERT INTO templates (name, category, budget_range, summary, modules, is_default, preset)
+VALUES (%(name)s, %(category)s, %(budget_range)s, %(summary)s, %(modules)s, %(is_default)s, %(preset)s)
+RETURNING id, name, category, budget_range, summary, modules, is_default, preset, created_at;
+"""
+
+
 _SEED_DATA: list[dict[str, Any]] = [
     {
         "name": "Web App MVP",
@@ -110,6 +117,64 @@ def _ensure_table_and_seed(database_url: str) -> None:
         conn.commit()
 
 
+class DuplicateTemplateError(RuntimeError):
+    pass
+
+
+def _row_to_dict(r: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "id": int(r[0]),
+        "name": r[1],
+        "category": r[2],
+        "budget_range": r[3],
+        "summary": r[4],
+        "modules": r[5],
+        "is_default": r[6],
+        "preset": r[7],
+        "created_at": r[8].isoformat() if r[8] else None,
+    }
+
+
+def create_template(
+    name: str,
+    category: str,
+    budget_range: str,
+    summary: str,
+    modules: int,
+    preset: dict[str, Any],
+) -> dict[str, Any]:
+    load_dotenv()
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+
+    _ensure_table_and_seed(database_url)
+
+    try:
+        with psycopg.connect(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    _INSERT_TEMPLATE_SQL,
+                    {
+                        "name": name,
+                        "category": category,
+                        "budget_range": budget_range,
+                        "summary": summary,
+                        "modules": modules,
+                        "is_default": False,
+                        "preset": Json(preset),
+                    },
+                )
+                row = cur.fetchone()
+            conn.commit()
+    except psycopg.errors.UniqueViolation as exc:
+        raise DuplicateTemplateError(
+            f"A template with the name '{name}' already exists"
+        ) from exc
+
+    return _row_to_dict(row)
+
+
 def get_all_templates() -> list[dict[str, Any]]:
     load_dotenv()
     database_url = os.getenv("DATABASE_URL")
@@ -123,17 +188,4 @@ def get_all_templates() -> list[dict[str, Any]]:
             cur.execute(_SELECT_ALL_TEMPLATES_SQL)
             rows = cur.fetchall()
 
-    return [
-        {
-            "id": int(r[0]),
-            "name": r[1],
-            "category": r[2],
-            "budget_range": r[3],
-            "summary": r[4],
-            "modules": r[5],
-            "is_default": r[6],
-            "preset": r[7],
-            "created_at": r[8].isoformat() if r[8] else None,
-        }
-        for r in rows
-    ]
+    return [_row_to_dict(r) for r in rows]

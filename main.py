@@ -7,6 +7,7 @@ from app.routers.users import router as users_router
 from app.routers.subscriptions import router as subscriptions_router
 from app.routers.quotes import router as quotes_router
 from app.routers.templates import router as templates_router
+from app.routers.settings import router as settings_router
 
 app = FastAPI()
 load_dotenv()
@@ -29,6 +30,7 @@ app.include_router(users_router)
 app.include_router(subscriptions_router)
 app.include_router(quotes_router)
 app.include_router(templates_router)
+app.include_router(settings_router)
 
 @app.get("/")
 async def root():
